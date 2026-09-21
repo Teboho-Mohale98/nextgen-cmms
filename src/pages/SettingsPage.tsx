@@ -198,7 +198,8 @@ function DemoInjector() {
       window.setTimeout(() => setProgress(null), 800)
     } catch (err) {
       console.error(err)
-      notify.error('Seeding failed', 'Check console for details and that rules are deployed.')
+      const detail = err instanceof Error ? err.message : String(err)
+      notify.error('Seeding failed', detail)
     } finally {
       setBusy(false)
     }
