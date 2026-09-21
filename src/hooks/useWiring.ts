@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { collection, limit, onSnapshot, query } from 'firebase/firestore'
-import { db } from '@/firebaseConfig'
+import { getDb, isFirebaseConfigured } from '@/firebaseConfig'
 import { useConnectivity } from '@/stores/connectivityStore'
 import { flushOfflineQueue } from '@/services/workOrders'
 
@@ -14,6 +14,8 @@ export function useFirestoreStatus() {
   const setLastSync = useConnectivity((s) => s.setLastSync)
 
   React.useEffect(() => {
+    if (!isFirebaseConfigured()) return
+    const db = getDb()
     const q = query(collection(db, 'monitoring'), limit(1))
     const unsub = onSnapshot(
       q,
@@ -43,6 +45,7 @@ export function useOfflineSync() {
   const firestoreConnected = useConnectivity((s) => s.firestoreConnected)
 
   React.useEffect(() => {
+    if (!isFirebaseConfigured()) return
     if (online && firestoreConnected) {
       void flushOfflineQueue()
     }

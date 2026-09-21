@@ -64,8 +64,21 @@ export function getDb(): Firestore {
 
 export const app: FirebaseApp = getApp()
 export const db: Firestore = getDb()
-export const auth: Auth = getAuth(app)
 export const storage: FirebaseStorage = getStorage(app)
+
+let _auth: Auth | null = null
+
+/**
+ * Lazily creates the Auth instance. `getAuth()` throws
+ * `auth/invalid-api-key` when the app is not configured, so it must never
+ * run at module load - only when a configured screen actually needs it.
+ * Otherwise the whole bundle fails before the setup wizard can render.
+ */
+export function getAuthClient(): Auth {
+  if (_auth) return _auth
+  _auth = getAuth(getApp())
+  return _auth
+}
 
 /** True when the browser supports IndexedDB-backed offline cache. */
 export const supportsOfflineCache = typeof indexedDB !== 'undefined'

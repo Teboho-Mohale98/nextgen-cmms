@@ -1,7 +1,7 @@
 import { useNavigate } from 'react-router-dom'
 import { signOut } from 'firebase/auth'
 import { CloudOff, CloudUpload, Wifi, UserCog, Settings, LogOut, Moon, Sun, Menu } from 'lucide-react'
-import { auth } from '@/firebaseConfig'
+import { getAuthClient } from '@/firebaseConfig'
 import { useAuthStore } from '@/stores/authStore'
 import { useConnectivity } from '@/stores/connectivityStore'
 import { useOfflineQueue } from '@/stores/offlineQueueStore'
@@ -59,7 +59,7 @@ export function TopHeader({ title }: { title: string }) {
     profile?.displayName ?? user?.displayName ?? user?.email?.split('@')[0] ?? 'user'
 
   const handleSignOut = async () => {
-    await signOut(auth)
+    await signOut(getAuthClient())
     notify.info('Signed out', 'Your session has ended.')
     navigate('/auth')
   }

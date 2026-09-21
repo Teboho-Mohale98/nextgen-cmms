@@ -6,7 +6,7 @@ import {
 } from 'firebase/auth'
 import { collection, doc, getDocs, limit, query, setDoc } from 'firebase/firestore'
 import { Activity, Loader2 } from 'lucide-react'
-import { auth, db } from '@/firebaseConfig'
+import { db, getAuthClient } from '@/firebaseConfig'
 import { Button } from '@/components/ui/button'
 import { Input, Label } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -47,7 +47,7 @@ export function AuthPage() {
     if (!email || !password) return
     setBusy(true)
     try {
-      await signInWithEmailAndPassword(auth, email, password)
+      await signInWithEmailAndPassword(getAuthClient(), email, password)
       notify.success('Welcome back', `Signed in as ${email}`)
       goHome()
     } catch (err) {
@@ -63,7 +63,7 @@ export function AuthPage() {
     if (!email || !password) return
     setBusy(true)
     try {
-      const cred = await createUserWithEmailAndPassword(auth, email, password)
+      const cred = await createUserWithEmailAndPassword(getAuthClient(), email, password)
       await ensureProfile(cred.user.uid)
       notify.success('Account created', 'You are signed in.')
       goHome()

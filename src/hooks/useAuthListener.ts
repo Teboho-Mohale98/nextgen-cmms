@@ -1,7 +1,7 @@
 import * as React from 'react'
 import { onAuthStateChanged, type User } from 'firebase/auth'
 import { doc, onSnapshot } from 'firebase/firestore'
-import { auth, db } from '@/firebaseConfig'
+import { db, getAuthClient, isFirebaseConfigured } from '@/firebaseConfig'
 import { useAuthStore } from '@/stores/authStore'
 import type { AppUserProfile } from '@/types'
 
@@ -17,9 +17,14 @@ export function useAuthListener() {
   const setLoading = useAuthStore((s) => s.setLoading)
 
   React.useEffect(() => {
+    if (!isFirebaseConfigured()) {
+      setLoading(false)
+      return
+    }
+
     let unsubProfile: (() => void) | null = null
 
-    const unsubscribe = onAuthStateChanged(auth, (user: User | null) => {
+    const unsubscribe = onAuthStateChanged(getAuthClient(), (user: User | null) => {
       setUser(user)
       if (unsubProfile) {
         unsubProfile()
