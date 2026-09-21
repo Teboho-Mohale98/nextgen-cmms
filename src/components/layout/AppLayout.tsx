@@ -2,7 +2,6 @@ import { Outlet, useLocation } from 'react-router-dom'
 import { NAV_ITEMS } from '@/config/navigation'
 import { Sidebar } from '@/components/layout/Sidebar'
 import { TopHeader } from '@/components/layout/TopHeader'
-import { ToastViewport } from '@/components/ui/toast'
 
 function titleFor(pathname: string): string {
   if (pathname.startsWith('/assets/')) return 'Asset Detail'
@@ -25,7 +24,6 @@ export function AppLayout() {
           <Outlet />
         </main>
       </div>
-      <ToastViewport />
     </div>
   )
 }
