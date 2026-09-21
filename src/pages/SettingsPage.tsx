@@ -16,6 +16,7 @@ import { useOfflineQueue } from '@/stores/offlineQueueStore'
 import { useCollectionLive } from '@/hooks/useFirestoreLive'
 import { seedDemoData } from '@/utils/seed/seedDemo'
 import { runAiAnalysis, setUserRoleRemote } from '@/services/userAdmin'
+import { ensureUserProfile } from '@/services/profile'
 import { canManageOps } from '@/config/roles'
 import { ROLE_LABEL, ROLE_DESCRIPTION } from '@/config/roles'
 import { notify } from '@/stores/toastStore'
@@ -46,6 +47,25 @@ export function SettingsPage() {
 
   void isManager
 
+  const [repairing, setRepairing] = React.useState(false)
+
+  const repairAccess = async () => {
+    if (!user) return
+    setRepairing(true)
+    try {
+      const created = await ensureUserProfile(user)
+      notify.success('Profile ready', `Your role is ${ROLE_LABEL[created.role]}.`)
+    } catch (err) {
+      console.error(err)
+      notify.error(
+        'Could not create profile',
+        err instanceof Error ? err.message : String(err),
+      )
+    } finally {
+      setRepairing(false)
+    }
+  }
+
   return (
     <div className="space-y-5">
       <div>
@@ -74,14 +94,27 @@ export function SettingsPage() {
               </div>
             </div>
             <Separator />
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="text-sm font-medium">Role</p>
                 <p className="text-xs text-muted-foreground">
-                  {profile ? ROLE_DESCRIPTION[profile.role] : 'Assign a role via Cloud Function.'}
+                  {profile
+                    ? ROLE_DESCRIPTION[profile.role]
+                    : 'No profile document yet — create one to gain access.'}
                 </p>
               </div>
-              <Badge variant="info">{profile ? ROLE_LABEL[profile.role] : 'No role'}</Badge>
+              {profile ? (
+                <Badge variant="info">{ROLE_LABEL[profile.role]}</Badge>
+              ) : (
+                <Button size="sm" variant="outline" onClick={repairAccess} disabled={repairing}>
+                  {repairing ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <ShieldCheck className="size-4" />
+                  )}
+                  Repair access
+                </Button>
+              )}
             </div>
             <div className="flex items-center justify-between">
               <p className="text-sm">Offline work order queue</p>

@@ -3,6 +3,7 @@ import { onAuthStateChanged, type User } from 'firebase/auth'
 import { doc, onSnapshot } from 'firebase/firestore'
 import { db, getAuthClient, isFirebaseConfigured } from '@/firebaseConfig'
 import { ensureUserProfile } from '@/services/profile'
+import { notify } from '@/stores/toastStore'
 import { useAuthStore } from '@/stores/authStore'
 import type { AppUserProfile } from '@/types'
 
@@ -50,6 +51,10 @@ export function useAuthListener() {
                 healing.current.add(user.uid)
                 void ensureUserProfile(user).catch((err) => {
                   console.warn('[cmms] profile provisioning failed', err)
+                  notify.error(
+                    'Profile setup failed',
+                    err instanceof Error ? err.message : String(err),
+                  )
                   healing.current.delete(user.uid)
                 })
               }
