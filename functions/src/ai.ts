@@ -1,11 +1,8 @@
 import { onCall, HttpsError } from 'firebase-functions/v2/https'
 import { logger } from 'firebase-functions'
 import { db } from './index'
-import { defineString } from 'firebase-functions/params'
 
-const OPENAI_KEY = defineString('OPENAI_API_KEY', { optional: true })
-const GEMINI_KEY = defineString('GEMINI_API_KEY', { optional: true })
-const SAFETY_FACTOR = defineNumber('FORECAST_SAFETY_FACTOR', { default: 1.5 })
+const SAFETY_FACTOR = Number(process.env.FORECAST_SAFETY_FACTOR ?? 1.5)
 
 interface AiRequest {
   workOrderId?: string
@@ -31,9 +28,10 @@ interface AiResponse {
  *                 assets to forecast a consolidated purchase requisition.
  *
  * Falls back to a transparent rule-based engine when no API key is set -
- * the UI continues to work in any environment.
+ * the UI continues to work in any environment. Configure keys via
+ * `functions/.env` (OPENAI_API_KEY / GEMINI_API_KEY / AI_PROVIDER).
  */
-export const aiAnalyze = onCall<AiRequest, AiResponse>(async (request) => {
+export const aiAnalyze = onCall<AiRequest>(async (request) => {
   if (!request.auth) throw new HttpsError('unauthenticated', 'Sign in required.')
   const mode = request.data?.mode
   if (mode !== 'root_cause' && mode !== 'parts_forecast') {
@@ -41,9 +39,9 @@ export const aiAnalyze = onCall<AiRequest, AiResponse>(async (request) => {
   }
 
   const provider: 'openai' | 'gemini' | 'rules' =
-    process.env.AI_PROVIDER === 'gemini' && GEMINI_KEY.value()
+    process.env.AI_PROVIDER === 'gemini' && process.env.GEMINI_API_KEY
       ? 'gemini'
-      : process.env.AI_PROVIDER === 'openai' && OPENAI_KEY.value()
+      : process.env.AI_PROVIDER === 'openai' && process.env.OPENAI_API_KEY
         ? 'openai'
         : 'rules'
 
@@ -54,7 +52,7 @@ export const aiAnalyze = onCall<AiRequest, AiResponse>(async (request) => {
       return await llmRootCause(context, provider as 'openai' | 'gemini')
     }
 
-    const context = await buildForecastContext(request.data)
+    const context = await buildForecastContext()
     if (provider === 'rules') return ruleForecast(context)
     return await llmForecast(context, provider as 'openai' | 'gemini')
   } catch (err) {
@@ -79,9 +77,9 @@ interface ForecastContext {
 }
 
 async function buildRootCauseContext(req: AiRequest): Promise<RootCauseContext> {
-  let query = db.collection('workorders')
-  if (req.assetId) query = query.where('assetId', '==', req.assetId)
-  const snap = await query.orderBy('createdAt', 'desc').limit(40).get()
+  const base = db.collection('workorders')
+  const scoped = req.assetId ? base.where('assetId', '==', req.assetId) : base
+  const snap = await scoped.orderBy('createdAt', 'desc').limit(40).get()
 
   const rows = snap.docs.map((d) => {
     const data = d.data()
@@ -103,7 +101,7 @@ async function buildRootCauseContext(req: AiRequest): Promise<RootCauseContext> 
   return { assetName, openCount: openRows.length, recent: rows.slice(0, 25) }
 }
 
-async function buildForecastContext(req: AiRequest): Promise<ForecastContext> {
+async function buildForecastContext(): Promise<ForecastContext> {
   const parts = await db.collection('inventoryParts').get()
   const lowStock = parts.docs
     .map((d) => {
@@ -116,7 +114,7 @@ async function buildForecastContext(req: AiRequest): Promise<ForecastContext> {
         current: Number(data.reorderQty ?? Math.max(Number(data.minReorderPoint ?? 0) * 2, 5)),
       }
     })
-    .filter((p) => p.qty < p.min * SAFETY_FACTOR.value())
+    .filter((p) => p.qty < p.min * SAFETY_FACTOR)
 
   const assets = await db.collection('assets').get()
   const wornAssets = assets.docs
@@ -132,14 +130,13 @@ async function buildForecastContext(req: AiRequest): Promise<ForecastContext> {
     })
     .filter((a) => a.runHours > a.hoursMax * 0.85)
 
-  let failRate = 0
-  const completed = await db.collection('workorders')
+  const completed = await db
+    .collection('workorders')
     .where('status', '==', 'completed')
     .count()
     .get()
   const completedCount = completed.data().count
-  const total = parts.size
-  failRate = completedCount > 0 ? Math.min(1, completedCount / Math.max(1, total * 5)) : 0
+  const failRate = completedCount > 0 ? Math.min(1, completedCount / Math.max(1, parts.size * 5)) : 0
 
   return { lowStock, failRate, totalParts: parts.size, wornAssets }
 }
@@ -148,14 +145,16 @@ async function buildForecastContext(req: AiRequest): Promise<ForecastContext> {
 
 function ruleRootCause(context: RootCauseContext): AiResponse {
   const open = context.recent.filter((r) => r.status !== 'completed')
-  const priorities = (open.map((r) => r.priority) as string[]).filter((p) => p === 'critical' || p === 'high')
+  const priorities = open.map((r) => r.priority).filter((p) => p === 'critical' || p === 'high')
   const suggestions: string[] = [
-    'Trend similar failure titles to identify a dominating failure mode (e.g. recurring bearing or courier failures).',
+    'Trend similar failure titles to identify a dominating failure mode (e.g. recurring bearing or coupler failures).',
     context.openCount > 5
       ? 'Backlog exceeding 5 open jobs - consider dedicating a second technician to this asset family.'
       : 'Backlog is within normal limits.',
   ]
-  if (priorities.length > 2) suggestions.push('More than 2 open critical/high jobs - escalate to production planner.')
+  if (priorities.length > 2) {
+    suggestions.push('More than 2 open critical/high jobs - escalate to production planner.')
+  }
   return {
     summary: `${context.assetName ?? 'Asset'} has ${context.openCount} open job(s) across ${context.recent.length} records. ${priorities.length} high/critical priority job(s).`,
     suggestions,
@@ -180,7 +179,10 @@ function ruleForecast(context: ForecastContext): AiResponse {
 
 /* ---------------- LLM wrappers (OpenAI / Gemini) ---------------- */
 
-async function llmRootCause(context: RootCauseContext, provider: 'openai' | 'gemini'): Promise<AiResponse> {
+async function llmRootCause(
+  context: RootCauseContext,
+  provider: 'openai' | 'gemini',
+): Promise<AiResponse> {
   const prompt = [
     'You are a reliability-engineer copilot for a CMMS.',
     'Analyze the work order history and return JSON: { summary, suggestions: string[], confidence }.',
@@ -192,7 +194,10 @@ async function llmRootCause(context: RootCauseContext, provider: 'openai' | 'gem
   return parseLlm(raw, provider)
 }
 
-async function llmForecast(context: ForecastContext, provider: 'openai' | 'gemini'): Promise<AiResponse> {
+async function llmForecast(
+  context: ForecastContext,
+  provider: 'openai' | 'gemini',
+): Promise<AiResponse> {
   const prompt = [
     'You are a spare-parts forecaster for a CMMS.',
     'Given inventory + run-hour data, propose a consolidated purchase plan. Return JSON: { summary, suggestions: string[], confidence }.',
@@ -210,7 +215,7 @@ async function callLLM(prompt: string, provider: 'openai' | 'gemini'): Promise<s
       method: 'POST',
       headers: {
         'content-type': 'application/json',
-        authorization: `Bearer ${OPENAI_KEY.value()}`,
+        authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
       },
       body: JSON.stringify({
         model: 'gpt-4o-mini',
@@ -225,7 +230,7 @@ async function callLLM(prompt: string, provider: 'openai' | 'gemini'): Promise<s
   }
 
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_KEY.value()}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
     {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -259,5 +264,3 @@ function parseLlm(raw: string, provider: 'openai' | 'gemini'): AiResponse {
     provider,
   }
 }
-
-import { defineNumber } from 'firebase-functions/params'

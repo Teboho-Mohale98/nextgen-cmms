@@ -1,0 +1,8 @@
+node_modules/
+lib/
+*.log
+
+# Local function secrets - keep the example
+.env
+.env.*
+!.env.example

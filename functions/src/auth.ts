@@ -17,12 +17,18 @@ interface SetRoleRequest {
  *  1. Firebase Auth custom claims (read by firestore.rules at request time)
  *  2. The /users/{uid} profile document (read by the UI + cached role)
  */
-export const setUserRole = onCall<SetRoleRequest, { ok: true }>(async (request) => {
+export const setUserRole = onCall<SetRoleRequest>(async (request) => {
   const caller = request.auth
   if (!caller) throw new HttpsError('unauthenticated', 'Sign in required.')
 
-  const callerClaims = caller.token?.role
-  if (callerClaims !== 'admin') {
+  // Prefer the custom claim, but fall back to the caller's profile doc so
+  // the bootstrap admin (no claims yet) can grant the first roles.
+  let callerRole = caller.token?.role as string | undefined
+  if (callerRole !== 'admin') {
+    const callerDoc = await db.collection('users').doc(caller.uid).get()
+    callerRole = callerDoc.exists ? (callerDoc.data()?.role as string | undefined) : undefined
+  }
+  if (callerRole !== 'admin') {
     throw new HttpsError('permission-denied', 'Only administrators can change roles.')
   }
 
