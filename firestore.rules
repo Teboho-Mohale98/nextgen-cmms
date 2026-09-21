@@ -37,17 +37,9 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == uid;
     }
 
-    function userDoc() {
-      return /databases/$(database)/documents/users/$(request.auth.uid);
-    }
-
     // Admin = full control, Manager = full read/write on operational data
     function canWriteOps() {
       return hasAnyRole(['admin', 'manager']);
-    }
-
-    function isActive() {
-      return get(userDoc()).data.status in ['active', 'approved'];
     }
 
     // ------------------------------------------------------------------
