@@ -1,0 +1,44 @@
+{
+  "name": "nextgen-cmms",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Next-Gen Computerized Maintenance Management System (CMMS) - offline-first, IoT-triggered, AI-assisted. A modern alternative to legacy CMMS platforms like Fiix.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "typecheck": "tsc -b --noEmit",
+    "preview": "vite preview",
+    "seed": "tsx src/utils/seed/index.ts",
+    "deploy": "firebase deploy",
+    "deploy:rules": "firebase deploy --only firestore:rules,storage",
+    "deploy:functions": "firebase deploy --only functions"
+  },
+  "dependencies": {
+    "@tanstack/react-query": "^5.66.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "date-fns": "^4.1.0",
+    "firebase": "^12.0.0",
+    "lucide-react": "^0.475.0",
+    "qr-scanner": "^1.4.2",
+    "qrcode.react": "^4.2.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "react-router-dom": "^7.2.0",
+    "tailwind-merge": "^3.0.1",
+    "zustand": "^5.0.3"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.0.6",
+    "@types/node": "^22.13.4",
+    "@types/react": "^19.0.8",
+    "@types/react-dom": "^19.0.3",
+    "@vitejs/plugin-react": "^4.3.4",
+    "firebase-admin": "^13.0.2",
+    "tailwindcss": "^4.0.6",
+    "tsx": "^4.19.2",
+    "typescript": "~5.7.3",
+    "vite": "^6.2.0"
+  }
+}

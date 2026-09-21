@@ -1,0 +1,137 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ------------------------------------------------------------------
+    // Auth + RBAC helpers
+    // Roles are stored as custom claims on the Firebase Auth token
+    // (managed by `setUserRole` cloud function) AND on /users/{uid}.
+    // ------------------------------------------------------------------
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function role() {
+      return request.auth.token.role;
+    }
+
+    function hasAnyRole(roles) {
+      return isSignedIn() && role() in roles;
+    }
+
+    function hasRole(r) {
+      return isSignedIn() && role() == r;
+    }
+
+    function isSelf(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    function userDoc() {
+      return /databases/$(database)/documents/users/$(request.auth.uid);
+    }
+
+    // Admin = full control, Manager = full read/write on operational data
+    function canWriteOps() {
+      return hasAnyRole(['admin', 'manager']);
+    }
+
+    function isActive() {
+      return get(userDoc()).data.status in ['active', 'approved'];
+    }
+
+    // ------------------------------------------------------------------
+    // Users: everyone can read a directory; users maintain their own
+    // profile; admins/managers can grant roles.
+    // ------------------------------------------------------------------
+    match /users/{uid} {
+      allow read: if isSignedIn();
+      allow create: if isSelf(uid);
+      allow update: if isSelf(uid) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'photoURL', 'phone', 'status'])
+                      || canWriteOps();
+      allow delete: if hasRole('admin');
+    }
+
+    // ------------------------------------------------------------------
+    // Assets: technicians execute work orders -> need write on asset
+    // status + metrics. Full schema writes reserved for admin/manager.
+    // ------------------------------------------------------------------
+    match /assets/{assetId} {
+      allow read: if isSignedIn();
+      allow create: if canWriteOps();
+      allow update: if canWriteOps()
+        || (isSignedIn()
+            && request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['status', 'metrics', 'qrCode'])); // technicians update runtime state
+      allow delete: if hasRole('admin');
+    }
+
+    // ------------------------------------------------------------------
+    // Work Orders: techs create + update (offline queues validate here),
+    // admins/managers full control.
+    // ------------------------------------------------------------------
+    match /workorders/{woId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.resource.data.assignedTo != null;
+      allow update: if isSignedIn()
+        && (canWriteOps()
+            || request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['status', 'assignedTo', 'completedAt', 'updatedAt', 'notes']));
+      allow delete: if hasRole('admin');
+    }
+
+    // ------------------------------------------------------------------
+    // Inventory parts: techs can read + decrement on consumption;
+    // admin/manager full control.
+    // ------------------------------------------------------------------
+    match /inventoryParts/{partId} {
+      allow read: if isSignedIn();
+      allow create: if canWriteOps();
+      allow update: if canWriteOps()
+        || (isSignedIn()
+            && request.resource.data.diff(resource.data).affectedKeys()
+                 .hasOnly(['quantityOnHand', 'updatedAt']));
+      allow delete: if hasRole('admin');
+    }
+
+    // ------------------------------------------------------------------
+    // Maintenance schedules: admin/manager only (execution is automated).
+    // ------------------------------------------------------------------
+    match /maintenanceSchedules/{scheduleId} {
+      allow read: if isSignedIn();
+      allow create, update: if canWriteOps();
+      allow delete: if hasRole('admin');
+    }
+
+    // ------------------------------------------------------------------
+    // IoT: latest readings per asset (written by simulator or edge
+    // gateway), monitoring/trigger engine runs client + cloud-side.
+    // ------------------------------------------------------------------
+    match /monitoring/{assetId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn(); // ingestion point (simulator / gateway / cloud fn)
+    }
+
+    match /sensorReadings/{readingId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn(); // append-only telemetry log
+      allow update, delete: if hasRole('admin');
+    }
+
+    // ------------------------------------------------------------------
+    // Audit log (auto-reorder, AI forecasts, role changes).
+    // ------------------------------------------------------------------
+    match /auditLog/{entryId} {
+      allow read: if hasAnyRole(['admin', 'manager']);
+      allow create: if hasRole('admin');
+      allow update, delete: if hasRole('admin');
+    }
+
+    // ------------------------------------------------------------------
+    // Batch writes used by the seeded demo (one-click injector).
+    // ------------------------------------------------------------------
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
