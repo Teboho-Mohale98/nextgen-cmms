@@ -1,4 +1,4 @@
-import { collection, doc, getDocs, limit, query, writeBatch } from 'firebase/firestore'
+import { collection, doc, getDocs, limit, query, setDoc } from 'firebase/firestore'
 import { db } from '@/firebaseConfig'
 import { buildSeedPayload, type SeedDocument } from '@/utils/seed/seedPayload'
 
@@ -45,23 +45,24 @@ export async function seedDemoData(
   const documents = payload.documents
   const counts = countByCollection(documents)
 
-  // Firestore writeBatch caps at 500 ops per batch.
-  const batches: SeedDocument[][] = []
-  for (let i = 0; i < documents.length; i += 400) {
-    batches.push(documents.slice(i, i + 400))
-  }
-
-  for (let b = 0; b < batches.length; b++) {
-    const batchDocs = batches[b]
-    const batch = writeBatch(db)
-    for (const docDesc of batchDocs) {
-      batch.set(doc(db, docDesc.collection, docDesc.id), docDesc.data, { merge: false })
+  // Write one document per request. Batched writes evaluate the rules'
+  // role lookup (get/exists) once per document and hit Firestore's
+  // per-batched-write document-access limit, which surfaces as
+  // "Missing or insufficient permissions". Sequential writes stay well
+  // under the limit and let us report the exact failing collection.
+  let written = 0
+  for (const docDesc of documents) {
+    try {
+      await setDoc(doc(db, docDesc.collection, docDesc.id), docDesc.data, { merge: false })
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err)
+      throw new Error(`Failed writing ${docDesc.collection}/${docDesc.id} - ${detail}`)
     }
+    written++
     onProgress?.({
-      label: `Writing batch ${b + 1}/${batches.length}…`,
-      pct: Math.round(((b + 1) / batches.length) * 100),
+      label: `Writing ${written}/${documents.length}…`,
+      pct: Math.round((written / documents.length) * 100),
     })
-    await batch.commit()
   }
 
   return {
