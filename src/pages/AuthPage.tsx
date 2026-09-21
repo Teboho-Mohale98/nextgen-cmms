@@ -4,7 +4,7 @@ import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
 } from 'firebase/auth'
-import { collection, doc, getDocs, limit, query, setDoc } from 'firebase/firestore'
+import { collection, doc, getDocs, limit, query, setDoc, where } from 'firebase/firestore'
 import { Activity, Loader2 } from 'lucide-react'
 import { db, getAuthClient } from '@/firebaseConfig'
 import { Button } from '@/components/ui/button'
@@ -27,15 +27,19 @@ export function AuthPage() {
   }
 
   const ensureProfile = async (uid: string): Promise<void> => {
-    // First account in the project becomes the bootstrap admin.
-    const existing = await getDocs(query(collection(db, 'users'), limit(1)))
-    const firstUser = existing.empty
+    // Bootstrap: the first account becomes admin, i.e. while no admin exists.
+    // Checking for an existing admin (rather than an empty collection) is
+    // resilient to orphaned /users docs left behind by deleted Auth users.
+    const admins = await getDocs(
+      query(collection(db, 'users'), where('role', '==', 'admin'), limit(1)),
+    )
+    const firstAdmin = admins.empty
 
     const profile: AppUserProfile = {
       uid,
       email,
       displayName: displayName.trim() || email.split('@')[0],
-      role: firstUser ? 'admin' : 'technician',
+      role: firstAdmin ? 'admin' : 'technician',
       status: 'active',
       createdAt: new Date().toISOString(),
     }
