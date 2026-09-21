@@ -1,18 +1,14 @@
 import * as React from 'react'
 import { useNavigate } from 'react-router-dom'
-import {
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
-} from 'firebase/auth'
-import { collection, doc, getDocs, limit, query, setDoc, where } from 'firebase/firestore'
+import { createUserWithEmailAndPassword, signInWithEmailAndPassword } from 'firebase/auth'
 import { Activity, Loader2 } from 'lucide-react'
-import { db, getAuthClient } from '@/firebaseConfig'
+import { getAuthClient } from '@/firebaseConfig'
+import { ensureUserProfile } from '@/services/profile'
 import { Button } from '@/components/ui/button'
 import { Input, Label } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { notify } from '@/stores/toastStore'
-import type { AppUserProfile } from '@/types'
 
 export function AuthPage() {
   const navigate = useNavigate()
@@ -26,32 +22,13 @@ export function AuthPage() {
     navigate('/', { replace: true })
   }
 
-  const ensureProfile = async (uid: string): Promise<void> => {
-    // Bootstrap: the first account becomes admin, i.e. while no admin exists.
-    // Checking for an existing admin (rather than an empty collection) is
-    // resilient to orphaned /users docs left behind by deleted Auth users.
-    const admins = await getDocs(
-      query(collection(db, 'users'), where('role', '==', 'admin'), limit(1)),
-    )
-    const firstAdmin = admins.empty
-
-    const profile: AppUserProfile = {
-      uid,
-      email,
-      displayName: displayName.trim() || email.split('@')[0],
-      role: firstAdmin ? 'admin' : 'technician',
-      status: 'active',
-      createdAt: new Date().toISOString(),
-    }
-    await setDoc(doc(db, 'users', uid), profile)
-  }
-
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!email || !password) return
     setBusy(true)
     try {
-      await signInWithEmailAndPassword(getAuthClient(), email, password)
+      const cred = await signInWithEmailAndPassword(getAuthClient(), email, password)
+      await ensureUserProfile(cred.user)
       notify.success('Welcome back', `Signed in as ${email}`)
       goHome()
     } catch (err) {
@@ -68,7 +45,7 @@ export function AuthPage() {
     setBusy(true)
     try {
       const cred = await createUserWithEmailAndPassword(getAuthClient(), email, password)
-      await ensureProfile(cred.user.uid)
+      await ensureUserProfile(cred.user, { email, displayName })
       notify.success('Account created', 'You are signed in.')
       goHome()
     } catch (err) {
